@@ -13,6 +13,7 @@ from langchain_core.tools import BaseTool
 from langchain_litellm import ChatLiteLLM
 
 from ..skills.registry import SkillRegistry
+from ..skills.loader import create_load_skill_tool
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,12 @@ class BaseAgent(ABC):
             max_tokens=4096,
         )
 
+        # Auto-register the load_skill tool so the LLM can lazily load skill
+        # content on demand (system prompt only contains summaries).
+        if self._active_skills:
+            load_skill_tool = create_load_skill_tool(skill_registry, self._active_skills)
+            self.register_tools([load_skill_tool])
+
     @property
     @abstractmethod
     def agent_name(self) -> str:
@@ -85,15 +92,21 @@ class BaseAgent(ABC):
 
     def get_system_prompt(self) -> str:
         """
-        Build complete system prompt (including skills)
+        Build complete system prompt.
+
+        Only skill **summaries** (name + description) are included here.
+        The LLM should call the ``load_skill`` tool to obtain the full
+        instructions for a skill before performing the related task.
         """
-        skills_prompt = self.skill_registry.get_skills_prompt(self._active_skills)
+        skills_summary = self.skill_registry.get_skills_summary_for(
+            self._active_skills
+        )
 
         return f"""{self.base_system_prompt}
 
-{skills_prompt}
+{skills_summary}
 
-When the task relates to the skills above, you must strictly follow the instructions in the skill.
+When a task relates to one of the skills listed above, use the `load_skill` tool to load the full instructions for that skill before proceeding.
 """
 
     def add_skill(self, skill_name: str) -> bool:
@@ -197,10 +210,31 @@ When the task relates to the skills above, you must strictly follow the instruct
         Returns:
             AI response message
         """
-        system_message = SystemMessage(content=self.get_system_prompt())
+        system_prompt = self.get_system_prompt()
+        system_message = SystemMessage(content=system_prompt)
         full_messages = [system_message] + messages
 
+        # Log the full prompt sent to the LLM on the first iteration
+        logger.info(
+            "PROMPT -> %s | System prompt (%d chars):\n%s",
+            self.agent_name, len(system_prompt), system_prompt,
+        )
+        for i, msg in enumerate(messages):
+            role = getattr(msg, "type", "unknown")
+            content = getattr(msg, "content", str(msg))
+            preview = content[:500] + "..." if len(content) > 500 else content
+            logger.info(
+                "PROMPT -> %s | Message[%d] %s: %s",
+                self.agent_name, i, role, preview,
+            )
+
         for iteration in range(self.MAX_TOOL_ITERATIONS):
+            if iteration > 0:
+                # Log follow-up iterations so we can see tool results fed back
+                logger.info(
+                    "PROMPT -> %s | Tool-loop iteration %d, total messages: %d",
+                    self.agent_name, iteration, len(full_messages),
+                )
             response = self._llm.invoke(full_messages)
 
             # Check for tool calls

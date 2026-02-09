@@ -19,10 +19,10 @@ class ExecutorAgent(BaseAgent):
     """
 
     def __init__(self, skill_registry: SkillRegistry, **kwargs):
-        # Load executor agent's own skill (SKILL.md at agent root)
+        # Discover and register all skills from skills/ subdirectory
         agent_dir = Path(__file__).parent
-        skill = SkillLoader.load_skill(agent_dir)
-        if skill:
+        skills = SkillLoader.load_agent_skills(agent_dir, lazy=skill_registry._lazy)
+        for skill in skills:
             skill_registry.register(skill)
 
         super().__init__(skill_registry, **kwargs)

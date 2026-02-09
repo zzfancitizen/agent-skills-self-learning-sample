@@ -9,7 +9,7 @@ from langchain_core.messages import BaseMessage, AIMessage
 from ..base import BaseAgent
 from ...skills.registry import SkillRegistry
 from ...skills.loader import SkillLoader
-from .tools.search_system import search_system_tool
+from .skills.analysis.tools.search_system import search_system_tool
 
 
 class ProposalAgent(BaseAgent):
@@ -20,15 +20,16 @@ class ProposalAgent(BaseAgent):
     """
 
     def __init__(self, skill_registry: SkillRegistry, **kwargs):
-        # Load proposal agent's own skill (SKILL.md at agent root)
+        # Discover and register all skills from skills/ subdirectory
         agent_dir = Path(__file__).parent
-        skill = SkillLoader.load_skill(agent_dir)
-        if skill:
+        skills = SkillLoader.load_agent_skills(agent_dir, lazy=skill_registry._lazy)
+        for skill in skills:
             skill_registry.register(skill)
 
         super().__init__(skill_registry, **kwargs)
 
-        # Register search_system tool (auto-binds to LLM with logging support)
+        # Register skill-specific tools (pre-registered for availability;
+        # the SKILL.md content loaded via load_skill tells the LLM when to use them)
         self.register_tools([search_system_tool])
 
     @property
