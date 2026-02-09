@@ -1,5 +1,5 @@
 """
-Agent State - LangGraph 状态定义
+Agent State - LangGraph state definition
 """
 
 from typing import Annotated, TypedDict, Optional, Literal
@@ -9,47 +9,47 @@ from langchain_core.messages import BaseMessage
 
 class AgentState(TypedDict):
     """
-    Multi-Agent 工作流状态
-    
+    Multi-Agent workflow state
+
     Attributes:
-        messages: 对话消息历史（使用 add_messages reducer 自动累积）
-        current_agent: 当前处理的 agent 名称
-        route: 路由决策
-        task: 提取的任务描述
-        proposal: 来自 ProposalAgent 的方案
-        execution_result: 执行结果
-        final_response: 最终响应
-        error: 错误信息
+        messages: Conversation message history (auto-accumulated via add_messages reducer)
+        current_agent: Name of the currently active agent
+        route: Routing decision
+        task: Extracted task description
+        proposal: Proposal from ProposalAgent
+        execution_result: Execution result
+        final_response: Final response
+        error: Error message
     """
-    # 消息历史 - 使用 Annotated 以支持消息累积
+    # Message history - uses Annotated to support message accumulation
     messages: Annotated[list[BaseMessage], add_messages]
-    
-    # 流程控制
+
+    # Flow control
     current_agent: str
     route: Optional[str]
-    
-    # Agent 输出
+
+    # Agent outputs
     task: Optional[str]
     proposal: Optional[str]
     execution_result: Optional[str]
     final_response: Optional[str]
-    
-    # 错误处理
+
+    # Error handling
     error: Optional[str]
 
 
 def create_initial_state(user_message: str) -> AgentState:
     """
-    创建初始状态
-    
+    Create initial state
+
     Args:
-        user_message: 用户输入
-        
+        user_message: User input
+
     Returns:
-        初始化的 AgentState
+        Initialized AgentState
     """
     from langchain_core.messages import HumanMessage
-    
+
     return {
         "messages": [HumanMessage(content=user_message)],
         "current_agent": "",

@@ -1,26 +1,34 @@
 """
-Base Agent - 带 Skill 支持的基础 Agent 类
+Base Agent - Base Agent class with Skill support
 """
 
+import json
+import logging
 from abc import ABC, abstractmethod
 from typing import Optional
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
+from langchain_core.tools import BaseTool
 from langchain_litellm import ChatLiteLLM
 
 from ..skills.registry import SkillRegistry
 
+logger = logging.getLogger(__name__)
+
 
 class BaseAgent(ABC):
     """
-    带 Skill 支持的基础 Agent
-    
-    子类需要实现:
-    - agent_name: 返回 agent 名称
-    - default_skills: 返回默认 skill 列表
-    - process: 处理消息并返回响应
+    Base Agent with Skill support
+
+    Subclasses must implement:
+    - agent_name: Return agent name
+    - default_skills: Return default skill name list
+    - process: Process messages and return response
     """
+
+    # Max tool call loop iterations to prevent infinite loops
+    MAX_TOOL_ITERATIONS = 10
 
     def __init__(
         self,
@@ -30,24 +38,27 @@ class BaseAgent(ABC):
         additional_skills: Optional[list[str]] = None,
     ):
         """
-        初始化 Agent
-        
+        Initialize Agent
+
         Args:
-            skill_registry: Skill 注册中心
-            model: 使用的模型名称
-            temperature: 温度参数
-            additional_skills: 额外的 skill 名称列表
+            skill_registry: Skill registry
+            model: Model name to use
+            temperature: Temperature parameter
+            additional_skills: Additional skill name list
         """
         self.skill_registry = skill_registry
         self.model = model
         self.temperature = temperature
-        
-        # 合并默认 skills 和额外 skills
+
+        # Merge default skills and additional skills
         self._active_skills = list(self.default_skills)
         if additional_skills:
             self._active_skills.extend(additional_skills)
-        
-        # 初始化 LLM
+
+        # Tool registry: tool_name -> tool_instance
+        self._tools: dict[str, BaseTool] = {}
+
+        # Initialize LLM
         self._llm = ChatLiteLLM(
             model=model,
             temperature=temperature,
@@ -57,40 +68,40 @@ class BaseAgent(ABC):
     @property
     @abstractmethod
     def agent_name(self) -> str:
-        """返回 Agent 名称"""
+        """Return Agent name"""
         pass
 
     @property
     @abstractmethod
     def default_skills(self) -> list[str]:
-        """返回该 Agent 默认使用的 skill 名称列表"""
+        """Return default skill name list for this Agent"""
         pass
 
     @property
     @abstractmethod
     def base_system_prompt(self) -> str:
-        """返回基础 system prompt（不含 skills 部分）"""
+        """Return base system prompt (without skills section)"""
         pass
 
     def get_system_prompt(self) -> str:
         """
-        构建完整的 system prompt（包含 skills）
+        Build complete system prompt (including skills)
         """
         skills_prompt = self.skill_registry.get_skills_prompt(self._active_skills)
-        
+
         return f"""{self.base_system_prompt}
 
 {skills_prompt}
 
-当任务与上述 skills 相关时，你必须严格按照 skill 中的指令执行。
+When the task relates to the skills above, you must strictly follow the instructions in the skill.
 """
 
     def add_skill(self, skill_name: str) -> bool:
         """
-        动态添加 skill
-        
+        Dynamically add a skill
+
         Returns:
-            是否成功添加
+            Whether the skill was successfully added
         """
         if skill_name not in self._active_skills:
             if self.skill_registry.get(skill_name):
@@ -100,42 +111,139 @@ class BaseAgent(ABC):
 
     def remove_skill(self, skill_name: str) -> bool:
         """
-        移除 skill
-        
+        Remove a skill
+
         Returns:
-            是否成功移除
+            Whether the skill was successfully removed
         """
         if skill_name in self._active_skills:
             self._active_skills.remove(skill_name)
             return True
         return False
 
+    def register_tools(self, tools: list[BaseTool]) -> None:
+        """
+        Register tools and bind them to the LLM
+
+        Args:
+            tools: List of tool instances
+        """
+        for tool in tools:
+            self._tools[tool.name] = tool
+        if self._tools:
+            self._llm = self._llm.bind_tools(list(self._tools.values()))
+
+    def _log_tool_call(self, tool_call: dict) -> None:
+        """Log tool invocation"""
+        tool_name = tool_call.get("name", "unknown")
+        tool_args = tool_call.get("args", {})
+        tool_id = tool_call.get("id", "")
+
+        args_lines = "\n".join(
+            f"       {k}: {str(v)[:300] + '...' if len(str(v)) > 300 else v}"
+            for k, v in tool_args.items()
+        )
+        logger.info(
+            "TOOL CALL: %s | ID: %s | Agent: %s\n     Args:\n%s",
+            tool_name, tool_id, self.agent_name, args_lines
+        )
+
+    def _log_tool_result(self, tool_call: dict, result: str) -> None:
+        """Log tool execution result"""
+        tool_name = tool_call.get("name", "unknown")
+        tool_id = tool_call.get("id", "")
+
+        result_str = str(result)
+        if len(result_str) > 500:
+            result_str = result_str[:500] + "..."
+        logger.info(
+            "TOOL RESULT: %s | ID: %s | Agent: %s | Result: %s",
+            tool_name, tool_id, self.agent_name, result_str
+        )
+
+    def _execute_tool(self, tool_call: dict) -> str:
+        """
+        Execute a single tool call
+
+        Args:
+            tool_call: Tool call info {name, args, id}
+
+        Returns:
+            Tool execution result string
+        """
+        tool_name = tool_call.get("name", "")
+        tool_args = tool_call.get("args", {})
+
+        tool = self._tools.get(tool_name)
+        if tool is None:
+            return f"Error: Tool '{tool_name}' not found. Available tools: {list(self._tools.keys())}"
+
+        try:
+            result = tool.invoke(tool_args)
+            return str(result) if result is not None else ""
+        except Exception as e:
+            return f"Error executing tool '{tool_name}': {e}"
+
     def invoke(self, messages: list[BaseMessage]) -> AIMessage:
         """
-        调用 LLM 生成响应
-        
+        Invoke LLM to generate a response, with tool call loop support.
+
+        When the LLM returns tool calls, automatically executes tools, logs results,
+        and feeds results back to the LLM until a final text response is produced.
+
         Args:
-            messages: 消息列表
-            
+            messages: Message list
+
         Returns:
-            AI 响应消息
+            AI response message
         """
         system_message = SystemMessage(content=self.get_system_prompt())
         full_messages = [system_message] + messages
-        
-        response = self._llm.invoke(full_messages)
+
+        for iteration in range(self.MAX_TOOL_ITERATIONS):
+            response = self._llm.invoke(full_messages)
+
+            # Check for tool calls
+            tool_calls = getattr(response, "tool_calls", None)
+            if not tool_calls:
+                return response
+
+            # Tool calls present: log, execute, collect results
+            full_messages.append(response)
+
+            for tool_call in tool_calls:
+                # Log: tool call
+                self._log_tool_call(tool_call)
+
+                # Execute tool
+                result = self._execute_tool(tool_call)
+
+                # Log: tool result
+                self._log_tool_result(tool_call, result)
+
+                # Build ToolMessage to feed back to LLM
+                tool_message = ToolMessage(
+                    content=result,
+                    tool_call_id=tool_call.get("id", ""),
+                )
+                full_messages.append(tool_message)
+
+        # Exceeded max iterations, return last response
+        logger.warning(
+            "%s: Reached max tool iterations (%d)", self.agent_name, self.MAX_TOOL_ITERATIONS
+        )
         return response
 
     @abstractmethod
     def process(self, messages: list[BaseMessage], **kwargs) -> dict:
         """
-        处理消息并返回结果
-        
+        Process messages and return results
+
         Args:
-            messages: 输入消息列表
-            **kwargs: 额外参数
-            
+            messages: Input message list
+            **kwargs: Extra arguments
+
         Returns:
-            处理结果字典
+            Result dictionary
         """
         pass

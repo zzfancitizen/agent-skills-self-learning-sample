@@ -1,154 +1,160 @@
 # Skill-enabled Multi-Agent System
 
-基于 LangGraph 的多 Agent 系统，集成 Claude-style Skill 机制。
+A multi-agent system based on LangGraph, integrated with a Claude-style Skill mechanism.
 
-## 特性
+## Features
 
-- **Skill 系统**：类似 Claude Code 的 skill 机制，通过 SKILL.md 文件定义 Agent 能力
-- **多 Agent 协作**：Router → Proposal → Executor 三层架构
-- **LangGraph 集成**：使用 LangGraph 进行状态管理和流程编排
-- **动态 Skill 加载**：运行时加载和切换 skills
+- **Skill System**: Claude Code-style skill mechanism, defining agent capabilities through SKILL.md files
+- **Multi-Agent Collaboration**: Router -> Proposal -> Executor three-layer architecture
+- **LangGraph Integration**: Uses LangGraph for state management and workflow orchestration
+- **Dynamic Skill Loading**: Load and switch skills at runtime
 
-## 项目结构
+## Project Structure
 
 ```
 .
-├── pyproject.toml          # 依赖配置
+├── pyproject.toml              # Dependency configuration
 ├── src/
-│   ├── main.py             # 入口
+│   ├── main.py                 # Entry point
 │   ├── skills/
-│   │   ├── loader.py       # Skill 加载器
-│   │   └── registry.py     # Skill 注册中心
+│   │   ├── loader.py           # Skill loader
+│   │   └── registry.py         # Skill registry
 │   ├── agents/
-│   │   ├── base.py         # 基础 Agent
-│   │   ├── router.py       # 路由 Agent
-│   │   ├── proposal.py     # 提案 Agent
-│   │   └── executor.py     # 执行 Agent
+│   │   ├── base.py             # Base Agent
+│   │   ├── router/             # Router Agent
+│   │   │   ├── agent.py
+│   │   │   └── SKILL.md
+│   │   ├── proposal/           # Proposal Agent
+│   │   │   ├── agent.py
+│   │   │   ├── SKILL.md
+│   │   │   └── tools/
+│   │   │       └── search_system.py
+│   │   └── executor/           # Executor Agent
+│   │       ├── agent.py
+│   │       └── SKILL.md
 │   └── graph/
-│       ├── state.py        # 状态定义
-│       └── workflow.py     # 工作流
-└── skills/                  # Skill 定义
-    ├── routing/
-    │   └── SKILL.md
-    ├── analysis/
-    │   └── SKILL.md
-    └── execution/
-        └── SKILL.md
+│       ├── state.py            # State definition
+│       └── workflow.py         # Workflow
+├── visualize_graph.py          # Graph visualization
+└── workflow_graph.png          # Workflow graph image
 ```
 
-## 安装
+## Installation
 
 ```bash
-# 创建虚拟环境
-python -m venv venv
-source venv/bin/activate  # macOS/Linux
-
-# 安装依赖
-pip install -e .
+# Install dependencies with uv
+uv sync
 ```
 
-## 配置
+## Configuration
 
-创建 `.env` 文件：
+Create a `.env` file:
 
 ```bash
 ANTHROPIC_API_KEY=your_api_key_here
 ```
 
-## 使用
+## Usage
 
-### 列出可用 Skills
-
-```bash
-python -m src.main --list-skills
-```
-
-### 运行测试
+### List Available Skills
 
 ```bash
-python -m src.main --test
+uv run src/main.py --list-skills
 ```
 
-### 交互模式
+### Run Tests
 
 ```bash
-python -m src.main
+uv run src/main.py --test
 ```
 
-### 单次查询
+### Interactive Mode
 
 ```bash
-python -m src.main "如何优化数据库性能？"
+uv run src/main.py
 ```
 
-## 创建自定义 Skill
+### Single Query
 
-在 `skills/` 目录下创建新文件夹，添加 `SKILL.md`：
+```bash
+uv run src/main.py "How to optimize database performance?"
+```
+
+### Log Level Control
+
+```bash
+uv run src/main.py --log-level DEBUG --test
+```
+
+## Creating Custom Skills
+
+Each agent has its own SKILL.md in its directory. To create a new agent with a skill, add a `SKILL.md` file:
 
 ```markdown
 ---
 name: my_skill
-description: 我的自定义 skill
+description: My custom skill
 tags: [custom, example]
 ---
 
-# Skill 内容
+# Skill Content
 
-详细的指令说明...
+Detailed instructions...
 ```
 
-## 架构说明
+## Architecture
 
 ```
-用户请求
-    ↓
-┌─────────────────┐
-│  Router Agent   │ ← routing skill
-└────────┬────────┘
-         │
-    ↙    ↓    ↘
-┌────┐ ┌────┐ ┌────┐
-│ P  │ │ E  │ │ D  │
-│ r  │ │ x  │ │ i  │
-│ o  │ │ e  │ │ r  │
-│ p  │ │ c  │ │ e  │
-│ o  │ │ u  │ │ c  │
-│ s  │ │ t  │ │ t  │
-│ a  │ │ o  │ │    │
-│ l  │ │ r  │ │ R  │
-└────┘ └────┘ │ e  │
-   ↓     ↓    │ s  │
-   └──→──┘    │ p  │
-       ↓      └────┘
-┌─────────────────┐
-│    最终响应      │
-└─────────────────┘
+User Request
+    |
++-------------------+
+|   Router Agent    | <- routing skill
++--------+----------+
+         |
+    /    |    \
++----+ +----+ +------+
+| P  | | E  | | D    |
+| r  | | x  | | i    |
+| o  | | e  | | r    |
+| p  | | c  | | e    |
+| o  | | u  | | c    |
+| s  | | t  | | t    |
+| a  | | o  | |      |
+| l  | | r  | | R    |
++----+ +----+ | e    |
+  |      |    | s    |
+  +-->---+    | p    |
+      |       +------+
++-------------------+
+|  Final Response   |
++-------------------+
 ```
 
-## 扩展
+## Extending
 
-### 添加新 Agent
+### Adding a New Agent
 
-1. 继承 `BaseAgent` 类
-2. 实现 `agent_name`, `default_skills`, `base_system_prompt`, `process` 方法
-3. 在 `workflow.py` 中添加节点和边
+1. Inherit from `BaseAgent`
+2. Implement `agent_name`, `default_skills`, `base_system_prompt`, `process` methods
+3. Add a `SKILL.md` file in the agent directory
+4. Add nodes and edges in `workflow.py`
 
-### 添加 Tools（工具调用）
+### Adding Tools
 
-可以扩展 `BaseAgent` 以支持 tool calling：
+Extend agents with tool calling using `register_tools`:
 
 ```python
 from langchain_core.tools import tool
 
 @tool
 def query_database(query: str) -> str:
-    """查询数据库"""
-    # 实现...
+    """Query the database"""
+    # Implementation...
 
 class MyAgent(BaseAgent):
     def __init__(self, ...):
         super().__init__(...)
-        self._llm = self._llm.bind_tools([query_database])
+        self.register_tools([query_database])
 ```
 
 ## License

@@ -1,76 +1,84 @@
 """
 Skill-enabled Multi-Agent System
 
-主入口点
+Main entry point
 """
 
 import argparse
+import logging
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-# 加载环境变量
+# Load environment variables
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 def main():
-    """主入口函数"""
+    """Main entry function"""
     parser = argparse.ArgumentParser(
         description="Skill-enabled Multi-Agent System"
-    )
-    parser.add_argument(
-        "--skills-dir",
-        type=str,
-        default="./skills",
-        help="Skills 目录路径"
     )
     parser.add_argument(
         "--model",
         type=str,
         default="sap/anthropic--claude-4.5-opus",
-        help="使用的模型"
+        help="Model to use"
     )
     parser.add_argument(
         "--test",
         action="store_true",
-        help="运行测试模式"
+        help="Run test mode"
     )
     parser.add_argument(
         "--list-skills",
         action="store_true",
-        help="列出所有可用的 skills"
+        help="List all available skills"
+    )
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Log level (default: INFO)"
     )
     parser.add_argument(
         "query",
         nargs="?",
         type=str,
-        help="用户查询"
+        help="User query"
     )
 
     args = parser.parse_args()
 
-    # 确保 skills 目录存在
-    skills_path = Path(args.skills_dir)
-    if not skills_path.exists():
-        print(f"错误：Skills 目录不存在: {skills_path}")
-        return 1
+    # Configure logging
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 
-    # 加载 skills
+    # Create empty SkillRegistry; skills are self-loaded by each agent
     from src.skills import SkillRegistry
-    registry = SkillRegistry(skills_path)
+    registry = SkillRegistry()
 
-    # 列出 skills
+    # List skills (create agents first to trigger skill loading)
     if args.list_skills:
-        print("可用的 Skills:")
-        print(registry.get_skills_summary())
+        from src.agents import RouterAgent, ProposalAgent, ExecutorAgent
+        RouterAgent(registry, model=args.model)
+        ProposalAgent(registry, model=args.model)
+        ExecutorAgent(registry, model=args.model)
+        logger.info("Available Skills:\n%s", registry.get_skills_summary())
         return 0
 
-    # 测试模式
+    # Test mode
     if args.test:
         return run_test(registry, args.model)
 
-    # 交互模式或单次查询
+    # Interactive mode or single query
     if args.query:
         return run_single_query(args.query, registry, args.model)
     else:
@@ -78,96 +86,93 @@ def main():
 
 
 def run_test(registry, model: str) -> int:
-    """运行测试"""
-    print("=" * 50)
-    print("Skill-enabled Multi-Agent System 测试")
-    print("=" * 50)
+    """Run tests"""
+    logger.info("=" * 50)
+    logger.info("Skill-enabled Multi-Agent System Test")
+    logger.info("=" * 50)
 
-    # 测试 1: Skill 加载
-    print("\n[测试 1] Skill 加载")
-    skills = registry.list_skills()
-    print(f"  已加载 {len(skills)} 个 skills: {skills}")
-
-    # 测试 2: Skill prompt 生成
-    print("\n[测试 2] Skill Prompt 生成")
-    prompt = registry.get_skills_prompt(["routing"])
-    print(f"  Routing skill prompt 长度: {len(prompt)} 字符")
-
-    # 测试 3: 工作流创建
-    print("\n[测试 3] 工作流创建")
+    # Test 1: Workflow creation (triggers agent skill loading)
+    logger.info("[Test 1] Workflow creation")
     try:
         from src.graph import create_workflow
         workflow = create_workflow(registry, model=model)
-        print("  工作流创建成功 ✓")
+        logger.info("  Workflow created successfully")
     except Exception as e:
-        print(f"  工作流创建失败: {e}")
+        logger.error("  Workflow creation failed: %s", e)
         return 1
 
-    # 测试 4: 端到端测试（需要 API key）
+    # Test 2: Skill loading (agents registered their skills in previous step)
+    logger.info("[Test 2] Skill loading")
+    skills = registry.list_skills()
+    logger.info("  Loaded %d skills: %s", len(skills), skills)
+
+    # Test 3: Skill prompt generation
+    logger.info("[Test 3] Skill prompt generation")
+    prompt = registry.get_skills_prompt(["routing"])
+    logger.info("  Routing skill prompt length: %d chars", len(prompt))
+
+    # Test 4: End-to-end test (requires API key)
     if os.getenv("ANTHROPIC_API_KEY"):
-        print("\n[测试 4] 端到端测试")
+        logger.info("[Test 4] End-to-end test")
         try:
             from src.graph import run_workflow
             result = run_workflow(
-                "什么是机器学习？",
-                skills_dir=str(registry._skills[list(registry._skills.keys())[0]].path.parent) if registry._skills else "./skills",
+                "What is machine learning?",
                 model=model
             )
-            print(f"  响应: {result[:200]}..." if len(result) > 200 else f"  响应: {result}")
-            print("  端到端测试成功 ✓")
+            logger.info("  Response: %s", result[:200] + "..." if len(result) > 200 else result)
+            logger.info("  End-to-end test passed")
         except Exception as e:
-            print(f"  端到端测试失败: {e}")
+            logger.error("  End-to-end test failed: %s", e)
             return 1
     else:
-        print("\n[测试 4] 端到端测试 (跳过 - 未设置 ANTHROPIC_API_KEY)")
+        logger.info("[Test 4] End-to-end test (skipped - ANTHROPIC_API_KEY not set)")
 
-    print("\n" + "=" * 50)
-    print("所有测试通过 ✓")
-    print("=" * 50)
+    logger.info("=" * 50)
+    logger.info("All tests passed")
+    logger.info("=" * 50)
     return 0
 
 
 def run_single_query(query: str, registry, model: str) -> int:
-    """运行单次查询"""
+    """Run a single query"""
     from src.graph import run_workflow
 
-    print(f"处理查询: {query}\n")
+    logger.info("Processing query: %s", query)
     result = run_workflow(
         query,
-        skills_dir=str(list(registry._skills.values())[0].path.parent) if registry._skills else "./skills",
+        registry=registry,
         model=model
     )
-    print(result)
+    logger.info("Query result:\n%s", result)
     return 0
 
 
 def run_interactive(registry, model: str) -> int:
-    """交互模式"""
+    """Interactive mode"""
     from src.graph import run_workflow
 
-    print("Skill-enabled Multi-Agent System")
-    print("输入 'quit' 或 'exit' 退出")
-    print("-" * 40)
-
-    skills_dir = str(list(registry._skills.values())[0].path.parent) if registry._skills else "./skills"
+    logger.info("Skill-enabled Multi-Agent System")
+    logger.info("Type 'quit' or 'exit' to quit")
+    logger.info("-" * 40)
 
     while True:
         try:
-            query = input("\n你: ").strip()
+            query = input("\nYou: ").strip()
             if not query:
                 continue
             if query.lower() in ("quit", "exit", "q"):
-                print("再见！")
+                logger.info("Goodbye!")
                 break
 
-            result = run_workflow(query, skills_dir=skills_dir, model=model)
-            print(f"\nAgent: {result}")
+            result = run_workflow(query, registry=registry, model=model)
+            logger.info("Agent: %s", result)
 
         except KeyboardInterrupt:
-            print("\n再见！")
+            logger.info("Goodbye!")
             break
         except Exception as e:
-            print(f"\n错误: {e}")
+            logger.error("Error: %s", e)
 
     return 0
 

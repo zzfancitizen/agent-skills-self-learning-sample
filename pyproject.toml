@@ -17,6 +17,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "langchain-litellm>=0.4.0",
     "grandalf>=0.8",
+    "logging>=0.4.9.6",
 ]
 
 [project.optional-dependencies]

@@ -1,14 +1,14 @@
 """
-Skill Loader - 解析和加载 SKILL.md 文件
+Skill Loader - Parse and load SKILL.md files
 
-SKILL.md 格式:
+SKILL.md format:
 ---
 name: skill_name
-description: 简短描述
+description: Brief description
 tags: [tag1, tag2]
 ---
 
-# Skill 详细内容...
+# Skill detailed content...
 """
 
 import re
@@ -21,7 +21,7 @@ import yaml
 
 @dataclass
 class Skill:
-    """表示一个已加载的 Skill"""
+    """Represents a loaded Skill"""
     name: str
     description: str
     content: str
@@ -31,7 +31,7 @@ class Skill:
     resources_dir: Optional[Path] = None
 
     def get_prompt_section(self) -> str:
-        """生成用于注入 system prompt 的内容"""
+        """Generate content for injection into system prompt"""
         return f"""## Skill: {self.name}
 {self.description}
 
@@ -40,7 +40,7 @@ class Skill:
 
 
 class SkillLoader:
-    """加载单个 Skill 或整个 Skill 目录"""
+    """Load a single Skill or an entire Skill directory"""
 
     FRONTMATTER_PATTERN = re.compile(
         r'^---\s*\n(.*?)\n---\s*\n(.*)$',
@@ -50,13 +50,13 @@ class SkillLoader:
     @classmethod
     def load_skill(cls, skill_dir: Path) -> Optional[Skill]:
         """
-        从 skill 目录加载一个 skill
-        
+        Load a skill from a skill directory
+
         Args:
-            skill_dir: skill 目录路径，必须包含 SKILL.md
-            
+            skill_dir: Skill directory path, must contain SKILL.md
+
         Returns:
-            Skill 对象，如果加载失败返回 None
+            Skill object, or None if loading fails
         """
         skill_file = skill_dir / "SKILL.md"
         if not skill_file.exists():
@@ -65,12 +65,12 @@ class SkillLoader:
         raw_content = skill_file.read_text(encoding="utf-8")
         metadata, content = cls._parse_frontmatter(raw_content)
 
-        # 从元数据或目录名获取 skill 名称
+        # Get skill name from metadata or directory name
         name = metadata.get("name", skill_dir.name)
         description = metadata.get("description", "")
         tags = metadata.get("tags", [])
 
-        # 检查可选的子目录
+        # Check for optional subdirectories
         scripts_dir = skill_dir / "scripts"
         resources_dir = skill_dir / "resources"
 
@@ -87,13 +87,13 @@ class SkillLoader:
     @classmethod
     def load_skills_from_directory(cls, skills_root: Path) -> list[Skill]:
         """
-        从目录加载所有 skills
-        
+        Load all skills from a directory
+
         Args:
-            skills_root: skills 根目录
-            
+            skills_root: Skills root directory
+
         Returns:
-            Skill 对象列表
+            List of Skill objects
         """
         skills = []
         skills_root = Path(skills_root)
@@ -112,8 +112,8 @@ class SkillLoader:
     @classmethod
     def _parse_frontmatter(cls, content: str) -> tuple[dict, str]:
         """
-        解析 YAML frontmatter
-        
+        Parse YAML frontmatter
+
         Returns:
             (metadata_dict, remaining_content)
         """
@@ -125,6 +125,6 @@ class SkillLoader:
                 return metadata, body
             except yaml.YAMLError:
                 pass
-        
-        # 没有 frontmatter 或解析失败
+
+        # No frontmatter or parsing failed
         return {}, content
