@@ -201,6 +201,10 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+# App Foundation Agent
+src/app/__pycache__/
+src/app/.env
+
 # Marimo
 marimo/_static/
 marimo/_lsp/

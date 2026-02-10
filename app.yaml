@@ -1,0 +1,24 @@
+apiVersion: workload.appfnd.sap/v1
+kind: Agent
+metadata:
+  name: skill-agents
+  namespace: skill-agents
+spec:
+  container:
+    buildPath: .
+    port: 5000
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "50m"
+    limits:
+      memory: "512Mi"
+      cpu: "200m"
+  service:
+    apiAuth:
+      path: /*
+      type: jwt
+  models:
+  - executableId: aws-bedrock
+    name: anthropic--claude-4.5-sonnet
+    version: latest
