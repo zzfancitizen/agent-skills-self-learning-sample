@@ -15,7 +15,7 @@ A multi-agent system based on LangGraph, integrated with a Claude-style Skill me
 
 ## Project Structure
 
-```
+```bash
 .
 ├── app.yaml                    # App Foundation workload configuration
 ├── Dockerfile                  # Container build configuration
@@ -60,7 +60,7 @@ A multi-agent system based on LangGraph, integrated with a Claude-style Skill me
 
 ## How Lazy Loading Works
 
-```
+```bash
 Agent init
   └─> scan skills/ directory
   └─> read ONLY YAML frontmatter (name, description, tags)
@@ -76,6 +76,7 @@ User query arrives
 ```
 
 Key points:
+
 - The system prompt never contains full skill content -- only lightweight summaries
 - The `load_skill` tool is auto-registered on every agent via `BaseAgent`
 - Skill body content is read from disk on first access and cached for subsequent calls
@@ -221,7 +222,7 @@ Each agent can have multiple skills. To add a new skill to an agent:
 
 1. Create a directory under the agent's `skills/` folder:
 
-```
+```bash
 src/agents/proposal/skills/my_new_skill/
 ├── SKILL.md
 └── tools/              # optional: co-located tools
@@ -254,7 +255,7 @@ self.register_tools([my_tool])
 
 ## Architecture
 
-```
+```bash
 User Request
     |
 +-------------------+

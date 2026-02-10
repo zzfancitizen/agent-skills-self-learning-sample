@@ -3,8 +3,8 @@ Agent State - LangGraph state definition
 """
 
 from typing import Annotated, TypedDict, Optional, Literal
-from langgraph.graph import add_messages
-from langchain_core.messages import BaseMessage
+from langgraph.graph import add_messages # type: ignore[import-unresolved]
+from langchain_core.messages import BaseMessage # type: ignore[import-unresolved]
 
 
 class AgentState(TypedDict):
@@ -54,7 +54,7 @@ def create_initial_state(user_message: str) -> AgentState:
     Returns:
         Initialized AgentState
     """
-    from langchain_core.messages import HumanMessage
+    from langchain_core.messages import HumanMessage # type: ignore[import-unresolved]
 
     return {
         "messages": [HumanMessage(content=user_message)],

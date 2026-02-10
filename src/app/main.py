@@ -15,16 +15,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.dirname(__file__))
 
 import click
-import uvicorn
-from a2a.server.apps import A2AStarletteApplication
-from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import InMemoryTaskStore
-from a2a.types import AgentCapabilities, AgentCard, AgentSkill
-from dotenv import load_dotenv
+import uvicorn # type: ignore[import-unresolved]
+from a2a.server.apps import A2AStarletteApplication # type: ignore[import-unresolved]
+from a2a.server.request_handlers import DefaultRequestHandler # type: ignore[import-unresolved]
+from a2a.server.tasks import InMemoryTaskStore # type: ignore[import-unresolved]
+from a2a.types import AgentCapabilities, AgentCard, AgentSkill # type: ignore[import-unresolved]
+from dotenv import load_dotenv # type: ignore[import-unresolved]
 
 from agent_executor import AgentExecutor
 
-from application_foundation.aicore import set_aicore_config
+from application_foundation.aicore import set_aicore_config # type: ignore[import-unresolved]
 
 # Load environment variables
 load_dotenv()

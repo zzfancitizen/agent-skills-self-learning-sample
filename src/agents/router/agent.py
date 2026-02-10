@@ -7,7 +7,7 @@ from typing import Literal
 import json
 import re
 
-from langchain_core.messages import BaseMessage, AIMessage
+from langchain_core.messages import BaseMessage, AIMessage # type: ignore[import-unresolved]
 
 from ..base import BaseAgent
 from ...skills.registry import SkillRegistry
