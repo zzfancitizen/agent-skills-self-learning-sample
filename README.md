@@ -9,8 +9,10 @@ A multi-agent system based on LangGraph, integrated with a Claude-style Skill me
 - **Skill System**: Claude Code-style skill mechanism, defining agent capabilities through SKILL.md files
 - **Multi-Skill per Agent**: Each agent can have multiple skills organised in per-skill subdirectories
 - **Lazy Loading**: Only skill headers (name, description, tags) are loaded at init; full body content is loaded on demand via the `load_skill` tool when the LLM determines a skill is needed
-- **Multi-Agent Collaboration**: Router -> Proposal -> Executor three-layer architecture
-- **LangGraph Integration**: Uses LangGraph for state management and workflow orchestration
+- **Multi-Agent Collaboration**: Router → Proposal → Executor three-layer architecture
+- **LangGraph Integration**: Uses LangGraph for state management and workflow orchestration with `StateGraph`
+- **Conversation Memory**: Multi-turn conversation support via `MemorySaver` checkpointer, keyed by `context_id`
+- **State Management**: `AgentState` with `add_messages` reducer for automatic message accumulation
 - **Tool Co-location**: Tools live alongside the skill that uses them
 
 ## Project Structure
@@ -82,6 +84,30 @@ Key points:
 - Skill body content is read from disk on first access and cached for subsequent calls
 - If the LLM does not need a skill, its content is never loaded
 
+## Multi-Turn Conversation Memory
+
+The system uses LangGraph's `MemorySaver` checkpointer to maintain conversation history across requests:
+
+```bash
+Request 1 (context_id="user-123")
+  └─> Creates new conversation thread
+  └─> User: "What is machine learning?"
+  └─> Agent response saved to thread
+
+Request 2 (same context_id="user-123")
+  └─> Retrieves conversation history from thread
+  └─> User: "Can you give me an example?"
+  └─> Agent knows context from previous message
+  └─> Updated history saved back to thread
+```
+
+Key implementation details:
+
+- **Context ID**: Each unique `context_id` maintains a separate conversation thread
+- **State Reducer**: `AgentState.messages` uses `add_messages` reducer to append new messages to history
+- **Reset per Run**: Routing decisions (`route`), proposals, and execution results are reset for each workflow invocation, while message history persists
+- **Thread Isolation**: Different `context_id` values create completely independent conversation histories
+
 ## Installation
 
 ```bash
@@ -150,11 +176,14 @@ The A2A entry point also supports the legacy CLI modes:
 # List available skills
 uv run python src/app/main.py --list-skills
 
-# Run tests
+# Run tests (workflow creation, skill loading, prompt generation)
 uv run python src/app/main.py --test
 
 # Single query
 uv run python src/app/main.py "How to optimize database performance?"
+
+# Quick import validation (verify project structure after changes)
+uv run python -c "import src.main; import src.graph; import src.agents; import src.skills"
 ```
 
 ### Legacy CLI Entry Point
@@ -255,36 +284,114 @@ self.register_tools([my_tool])
 
 ## Architecture
 
+### Three-Layer Agent Pipeline
+
+Requests flow through a LangGraph `StateGraph` defined in `src/graph/workflow.py`:
+
 ```bash
 User Request
     |
+    v
 +-------------------+
-|   Router Agent    | <- routing skill (loaded on demand)
-+--------+----------+
+|   Router Agent    | <- Analyzes intent, returns routing decision
++--------+----------+   (proposal / executor / direct_response)
          |
     /    |    \
+   /     |     \
+  v      v      v
 +------+ +------+ +--------+
 |Propo-| |Execu-| |Direct  |
 |sal   | |tor   | |Response|
 |Agent | |Agent | |        |
 +------+ +------+ +--------+
+| Deep | |Execu-| |Quick   |
+|analy-| |tes   | |answer  |
+|sis   | |tasks | |        |
++------+ +------+ +--------+
   |        |           |
-  +---->---+           |
-       |               |
-+-------------------+  |
-|  Final Response   |<-+
-+-------------------+
+  +--------+-----------+
+           |
+           v
+    +------------+
+    |  Finalize  | <- Selects final response
+    +------------+
+           |
+           v
+    Final Response
 ```
+
+**Agent Responsibilities**:
+
+1. **RouterAgent** (`src/agents/router/`) — Analyzes user intent and returns a JSON routing decision
+2. **ProposalAgent** (`src/agents/proposal/`) — Deep analysis with `<thinking>` tags, generates solution proposals. Has a `search_system_tool` (currently a stub)
+3. **ExecutorAgent** (`src/agents/executor/`) — Executes operations based on proposals, reports step-by-step results
+
+**State Management**:
+
+- `AgentState` (`src/graph/state.py`) uses LangGraph's `add_messages` reducer for message accumulation
+- Fields: `messages`, `current_agent`, `route`, `task`, `proposal`, `execution_result`, `final_response`, `error`
+- Workflow state persists across nodes via conditional edges
+- All paths converge at the `finalize` node which selects the final response
+
+### Key Components
+
+**Skill System**:
+- `SkillLoader` (`src/skills/loader.py`) — Parses SKILL.md frontmatter, creates `Skill` objects, provides `create_load_skill_tool` factory
+- `SkillRegistry` (`src/skills/registry.py`) — Central registry for skill lookup, tag indexing, and prompt generation
+- `BaseAgent` (`src/agents/base.py`) — Abstract base with tool-call loop, auto-registers `load_skill` tool, max 10 tool iterations
+
+**A2A Service Layer** (`src/app/`):
+- `main.py` — Click CLI, builds `AgentCard` with skills, starts uvicorn server
+- `agent.py` — `SampleAgent` wraps multi-agent workflow with `MemorySaver` checkpointer for multi-turn conversations
+- `agent_executor.py` — A2A `AgentExecutor` adapter that streams workflow results as A2A task events
+
+**LLM Integration**:
+- Uses `ChatLiteLLM` with model prefix `sap/` (e.g., `sap/anthropic--claude-4.5-sonnet`)
+- LLM calls go through SAP AI Core via LiteLLM proxy
+- Tools use LangChain's `@tool` decorator and are registered via `BaseAgent.register_tools()`
 
 ## Extending
 
 ### Adding a New Agent
 
-1. Inherit from `BaseAgent`
-2. Implement `agent_name`, `default_skills`, `base_system_prompt`, `process` methods
-3. Create a `skills/` directory with one or more skill subdirectories, each containing a `SKILL.md`
-4. Use `SkillLoader.load_agent_skills(agent_dir)` in `__init__` to discover and register all skills
-5. Add nodes and edges in `workflow.py`
+1. Create `src/agents/<name>/` with `__init__.py`, `agent.py`, and `skills/<skill_name>/SKILL.md`
+2. Subclass `BaseAgent` — implement `agent_name`, `default_skills`, `base_system_prompt`, `process`
+3. In `__init__`, call `SkillLoader.load_agent_skills()` and register skills with the registry:
+
+```python
+from pathlib import Path
+from src.agents.base import BaseAgent
+from src.skills.loader import SkillLoader
+
+class MyAgent(BaseAgent):
+    @property
+    def agent_name(self) -> str:
+        return "my_agent"
+
+    @property
+    def default_skills(self) -> list[str]:
+        return ["my_skill"]
+
+    def __init__(self, skill_registry, **kwargs):
+        agent_dir = Path(__file__).parent
+        skills = SkillLoader.load_agent_skills(agent_dir)
+        for skill in skills:
+            skill_registry.register(skill)
+
+        super().__init__(skill_registry, **kwargs)
+
+        # Register tools if needed
+        # from .skills.my_skill.tools.my_tool import my_tool
+        # self.register_tools([my_tool])
+
+    def process(self, state) -> dict:
+        # Agent logic here
+        return {"my_result": "..."}
+```
+
+4. Export from `src/agents/__init__.py`
+5. Add node + edges in `src/graph/workflow.py`
+6. Update `RouterAgent.VALID_ROUTES`, its system prompt, and `route_decision()` if the router should route to it
 
 ### Adding Tools to a Skill
 
@@ -316,6 +423,45 @@ class MyAgent(BaseAgent):
         from .skills.my_skill.tools.my_tool import query_database
         self.register_tools([query_database])
 ```
+
+## Development
+
+### Quick Validation After Changes
+
+```bash
+# Import check - verify all modules load correctly
+uv run python -c "import src.main; import src.graph; import src.agents; import src.skills"
+
+# Run tests - workflow creation, skill loading, prompt generation
+uv run python src/app/main.py --test
+
+# List skills - verify new skills are registered
+uv run python src/app/main.py --list-skills
+```
+
+### Common Development Tasks
+
+```bash
+# Update dependencies
+uv sync
+
+# Export requirements.txt (needed for Docker builds)
+uv export --format requirements-txt > requirements.txt
+
+# Visualize workflow graph
+uv run python visualize_graph.py
+
+# Run with debug logging
+uv run python src/main.py --log-level DEBUG "test query"
+```
+
+### Key Conventions
+
+- Python 3.13, managed with `uv`
+- LLM calls use `ChatLiteLLM` with model prefix `sap/` (e.g., `sap/anthropic--claude-4.5-sonnet`)
+- Tools use LangChain's `@tool` decorator
+- The `process()` method on each agent returns a dict with agent-specific keys
+- Each agent's `default_skills` property lists skills to include in the system prompt summary
 
 ## License
 
