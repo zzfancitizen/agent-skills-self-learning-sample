@@ -7,10 +7,10 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
-from langchain_core.tools import BaseTool
-from langchain_litellm import ChatLiteLLM
+from langchain_anthropic import ChatAnthropic # type: ignore[import-unresolved]
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage # type: ignore[import-unresolved]
+from langchain_core.tools import BaseTool # type: ignore[import-unresolved]
+from langchain_litellm import ChatLiteLLM # type: ignore[import-unresolved]
 
 from ..skills.registry import SkillRegistry
 from ..skills.loader import create_load_skill_tool
@@ -63,7 +63,7 @@ class BaseAgent(ABC):
         self._llm = ChatLiteLLM(
             model=model,
             temperature=temperature,
-            max_tokens=4096,
+            max_tokens=16384,
         )
 
         # Auto-register the load_skill tool so the LLM can lazily load skill

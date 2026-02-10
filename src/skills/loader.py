@@ -24,13 +24,12 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 import yaml
-from langchain_core.tools import BaseTool, tool
+from langchain_core.tools import BaseTool, tool # type: ignore[import-unresolved]
 
 if TYPE_CHECKING:
     from .registry import SkillRegistry
 
 logger = logging.getLogger(__name__)
-
 
 class Skill:
     """Represents a loaded Skill with lazy content loading support.
@@ -111,6 +110,11 @@ class SkillLoader:
 
     FRONTMATTER_PATTERN = re.compile(
         r'^---\s*\n(.*?)\n---\s*\n(.*)$',
+        re.DOTALL
+    )
+
+    FRONTMATTER_RE = re.compile(
+        r"^---\s*\n(.*?)\n---", 
         re.DOTALL
     )
 
@@ -215,32 +219,19 @@ class SkillLoader:
         """
         Read **only** the YAML frontmatter from a SKILL.md file.
 
-        Reads line-by-line and stops as soon as the closing ``---`` marker is
-        found, so the (potentially large) body content is never loaded into
-        memory.
+        Uses a regex to extract the content between the opening and closing
+        ``---`` markers at the top of the file.
 
         Returns:
             Parsed frontmatter as a dictionary
         """
-        lines: list[str] = []
-        in_frontmatter = False
-
         with open(skill_file, "r", encoding="utf-8") as fh:
-            for line in fh:
-                stripped = line.strip()
-                if stripped == "---":
-                    if not in_frontmatter:
-                        in_frontmatter = True
-                        continue
-                    else:
-                        # Closing marker → stop reading
-                        break
-                if in_frontmatter:
-                    lines.append(line)
+            content = fh.read()
 
-        if lines:
+        match = cls.FRONTMATTER_RE.match(content)
+        if match:
             try:
-                return yaml.safe_load("".join(lines)) or {}
+                return yaml.safe_load(match.group(1)) or {}
             except yaml.YAMLError:
                 pass
 
