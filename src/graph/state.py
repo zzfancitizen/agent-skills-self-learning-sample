@@ -40,7 +40,13 @@ class AgentState(TypedDict):
 
 def create_initial_state(user_message: str) -> AgentState:
     """
-    Create initial state
+    Create initial state for a new workflow invocation.
+
+    When used with a checkpointer (conversation memory), the ``messages``
+    field uses the ``add_messages`` reducer so the new HumanMessage is
+    **appended** to existing conversation history rather than replacing it.
+    All other fields are explicitly reset so each workflow run starts with
+    a clean slate for routing, proposals, and execution.
 
     Args:
         user_message: User input
@@ -52,6 +58,7 @@ def create_initial_state(user_message: str) -> AgentState:
 
     return {
         "messages": [HumanMessage(content=user_message)],
+        # Reset workflow-specific fields for this run
         "current_agent": "",
         "route": None,
         "task": None,

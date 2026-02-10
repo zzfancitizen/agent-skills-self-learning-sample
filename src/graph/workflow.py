@@ -5,8 +5,8 @@ Workflow - LangGraph multi-agent workflow
 import logging
 from typing import Literal
 
-from langgraph.graph import StateGraph, END
-from langchain_core.messages import AIMessage
+from langgraph.graph import StateGraph, END # type: ignore[import-unresolved]
+from langchain_core.messages import AIMessage # type: ignore[import-unresolved]
 
 from .state import AgentState
 from ..agents import RouterAgent, ProposalAgent, ExecutorAgent
@@ -15,12 +15,15 @@ from ..skills import SkillRegistry
 logger = logging.getLogger(__name__)
 
 
-def create_workflow(skill_registry: SkillRegistry, **agent_kwargs):
+def create_workflow(skill_registry: SkillRegistry, checkpointer=None, **agent_kwargs):
     """
     Create multi-agent workflow
 
     Args:
         skill_registry: Skill registry
+        checkpointer: Optional LangGraph checkpointer for conversation memory.
+                       When provided, the workflow persists state across invocations
+                       keyed by thread_id, enabling multi-turn conversations.
         **agent_kwargs: Extra arguments passed to agents (e.g. model, temperature)
 
     Returns:
@@ -205,8 +208,8 @@ def create_workflow(skill_registry: SkillRegistry, **agent_kwargs):
     workflow.add_edge("executor", "finalize")
     workflow.add_edge("finalize", END)
 
-    # Compile
-    return workflow.compile()
+    # Compile (with optional checkpointer for conversation memory)
+    return workflow.compile(checkpointer=checkpointer)
 
 
 def run_workflow(
