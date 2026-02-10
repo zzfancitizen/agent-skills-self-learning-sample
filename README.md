@@ -1,9 +1,11 @@
 # Skill-enabled Multi-Agent System
 
-A multi-agent system based on LangGraph, integrated with a Claude-style Skill mechanism featuring lazy loading.
+A multi-agent system based on LangGraph, integrated with a Claude-style Skill mechanism featuring lazy loading. Exposed as an **A2A (Agent-to-Agent) protocol** service built on **SAP Application Foundation** for deployment on SAP App Foundation runtime.
 
 ## Features
 
+- **A2A Protocol**: Agent-to-Agent communication via the A2A SDK, exposable as a standard A2A service
+- **Application Foundation**: SAP AI Core integration for LLM access and managed runtime deployment
 - **Skill System**: Claude Code-style skill mechanism, defining agent capabilities through SKILL.md files
 - **Multi-Skill per Agent**: Each agent can have multiple skills organised in per-skill subdirectories
 - **Lazy Loading**: Only skill headers (name, description, tags) are loaded at init; full body content is loaded on demand via the `load_skill` tool when the LLM determines a skill is needed
@@ -15,9 +17,18 @@ A multi-agent system based on LangGraph, integrated with a Claude-style Skill me
 
 ```
 .
-├── pyproject.toml              # Dependency configuration
+├── app.yaml                    # App Foundation workload configuration
+├── Dockerfile                  # Container build configuration
+├── requirements.txt            # Python dependencies (exported from pyproject.toml)
+├── pyproject.toml              # Dependency & project configuration
 ├── src/
-│   ├── main.py                 # Entry point
+│   ├── main.py                 # Legacy CLI entry point
+│   ├── app/                    # A2A service entry point (latest)
+│   │   ├── __init__.py
+│   │   ├── main.py             # A2A server + integrated CLI modes
+│   │   ├── agent_executor.py   # A2A request handler
+│   │   ├── agent.py            # Core agent wrapping multi-agent workflow
+│   │   └── .env.example        # Environment variable template
 │   ├── skills/
 │   │   ├── loader.py           # Skill loader & load_skill tool factory
 │   │   └── registry.py         # Skill registry
@@ -73,50 +84,136 @@ Key points:
 ## Installation
 
 ```bash
-# Install dependencies with uv
+# Install dependencies with uv (requires SAP Artifactory credentials for application-foundation-sdk)
+UV_INDEX_SAP_ARTIFACTORY_USERNAME=<your-i-number> \
+UV_INDEX_SAP_ARTIFACTORY_PASSWORD=<your-artifactory-token> \
 uv sync
 ```
 
 ## Configuration
 
-Create a `.env` file:
+Create a `.env` file with SAP AI Core credentials:
 
 ```bash
-ANTHROPIC_API_KEY=your_api_key_here
+ARTIFACTORY_USER=<your-i-number>
+ARTIFACTORY_TOKEN=<your-artifactory-token>
+
+AICORE_CLIENT_ID=<your-client-id>
+AICORE_CLIENT_SECRET=<your-client-secret>
+AICORE_AUTH_URL=<your-auth-url>
+AICORE_BASE_URL=<your-base-url>
+AICORE_RESOURCE_GROUP=<your-resource-group>
 ```
 
 ## Usage
 
-### List Available Skills
+### A2A Server (Default — Latest Entry Point)
+
+Start the A2A protocol server:
 
 ```bash
-uv run src/main.py --list-skills
+uv run python src/app/main.py --host 0.0.0.0 --port 5000
 ```
 
-### Run Tests
+Verify the agent is running:
 
 ```bash
-uv run src/main.py --test
+curl http://localhost:5000/.well-known/agent.json
 ```
 
-### Interactive Mode
+Send a message via A2A protocol:
 
 ```bash
-uv run src/main.py
+curl --request POST \
+  --url http://localhost:5000/ \
+  --header 'content-type: application/json' \
+  --data '{
+  "jsonrpc": "2.0",
+  "method": "message/send",
+  "id": "test-1",
+  "params": {
+    "message": {
+      "messageId": "msg-001",
+      "role": "user",
+      "parts": [{"kind": "text", "text": "Hello, what can you help me with?"}]
+    }
+  }
+}'
 ```
 
-### Single Query
+### CLI Modes (via A2A entry point)
+
+The A2A entry point also supports the legacy CLI modes:
 
 ```bash
-uv run src/main.py "How to optimize database performance?"
+# List available skills
+uv run python src/app/main.py --list-skills
+
+# Run tests
+uv run python src/app/main.py --test
+
+# Single query
+uv run python src/app/main.py "How to optimize database performance?"
 ```
 
-### Log Level Control
+### Legacy CLI Entry Point
+
+The original CLI-only entry point is still available:
 
 ```bash
-# See full system prompts, tool calls, and lazy loading in action
-uv run src/main.py --log-level INFO "What is machine learning?"
+# Interactive mode
+uv run python src/main.py
+
+# Single query
+uv run python src/main.py "What is machine learning?"
+
+# Log level control
+uv run python src/main.py --log-level DEBUG "What is machine learning?"
 ```
+
+## Deployment
+
+### App Foundation Runtime
+
+Deploy to SAP App Foundation runtime:
+
+```bash
+appfnd deploy
+```
+
+Configuration is defined in `app.yaml`:
+
+- **`metadata.name`** — Agent identifier (`skill-agents`)
+- **`spec.container.port`** — Server port (`5000`)
+- **`spec.resources`** — CPU and memory limits
+- **`spec.models`** — SAP AI Core LLM models the agent can access
+
+### Docker (Local)
+
+Build and run the container locally:
+
+```bash
+docker build \
+  --build-arg ARTIFACTORY_USER=<your-i-number> \
+  --build-arg ARTIFACTORY_TOKEN=<your-token> \
+  -t skill-agents .
+
+docker run -p 5000:5000 \
+  -e AICORE_CLIENT_ID=<id> \
+  -e AICORE_CLIENT_SECRET=<secret> \
+  -e AICORE_AUTH_URL=<url> \
+  -e AICORE_BASE_URL=<url> \
+  -e AICORE_RESOURCE_GROUP=<group> \
+  skill-agents
+```
+
+### Model Selection
+
+The default model is `anthropic--claude-4.5-sonnet`. To change it, update:
+
+1. `app.yaml` — Add the model to the `models` list
+2. `src/app/main.py` — Update the `--model` default
+3. Agent code in `src/agents/` — Update the model parameter
 
 ## Creating Custom Skills
 
